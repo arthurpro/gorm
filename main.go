@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"github.com/arthurpro/gorm/sqlstruct"
 )
 
 // NowFunc returns current time, this function is exported in order to be able
@@ -34,6 +35,8 @@ type DB struct {
 	source            string
 	values            map[string]interface{}
 	joinTableHandlers map[string]JoinTableHandler
+
+	sqlstruct		  *sqlstruct.Session
 }
 
 func Open(dialect string, args ...interface{}) (DB, error) {
@@ -71,6 +74,7 @@ func Open(dialect string, args ...interface{}) (DB, error) {
 			source:   source,
 			values:   map[string]interface{}{},
 			db:       dbSql,
+			sqlstruct:sqlstruct.NewSession(),
 		}
 		db.parent = &db
 
@@ -219,6 +223,11 @@ func (s *DB) Scan(dest interface{}) *DB {
 	return s.clone().NewScope(s.Value).Set("gorm:query_destination", dest).callCallbacks(s.parent.callback.queries).db
 }
 
+func (s *DB) MustScan(dest interface{}, rows *sql.Rows) *DB {
+	s.sqlstruct.MustScan(dest, rows)
+	return s.clone().NewScope(s.Value).db
+}
+
 func (s *DB) Row() *sql.Row {
 	return s.NewScope(s.Value).row()
 }
@@ -315,6 +324,10 @@ func (s *DB) Exec(sql string, values ...interface{}) *DB {
 	generatedSql = strings.TrimSuffix(strings.TrimPrefix(generatedSql, "("), ")")
 	scope.Raw(generatedSql)
 	return scope.Exec().db
+}
+
+func (s *DB) Call(sql string, values ...interface{}) *DB {
+	return s.clone().search.Raw(true).Call(sql, values...).db
 }
 
 func (s *DB) Model(value interface{}) *DB {

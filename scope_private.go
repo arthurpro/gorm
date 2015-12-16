@@ -154,6 +154,36 @@ func (scope *Scope) buildSelectQuery(clause map[string]interface{}) (str string)
 	return
 }
 
+func (scope *Scope) buildCallQuery(clause map[string]interface{}) (str string) {
+	switch value := clause["query"].(type) {
+	case string:
+		str = value
+	case []string:
+		str = strings.Join(value, ", ")
+	}
+
+	str = fmt.Sprintf("CALL %s", str)
+
+	args := clause["args"].([]interface{})
+	for _, arg := range args {
+		switch reflect.ValueOf(arg).Kind() {
+		case reflect.Slice:
+			values := reflect.ValueOf(arg)
+			var tempMarks []string
+			for i := 0; i < values.Len(); i++ {
+				tempMarks = append(tempMarks, scope.AddToVars(values.Index(i).Interface()))
+			}
+			str = strings.Replace(str, "?", strings.Join(tempMarks, ","), 1)
+		default:
+			if valuer, ok := interface{}(arg).(driver.Valuer); ok {
+				arg, _ = valuer.Value()
+			}
+			str = strings.Replace(str, "?", scope.AddToVars(arg), 1)
+		}
+	}
+	return
+}
+
 func (scope *Scope) whereSql() (sql string) {
 	var primaryConditions, andConditions, orConditions []string
 
@@ -307,6 +337,11 @@ func (scope *Scope) prepareQuerySql() {
 	return
 }
 
+func (scope *Scope) prepareCallSql() {
+	scope.Raw(scope.buildCallQuery(scope.Search.calls))
+	return
+}
+
 func (scope *Scope) inlineCondition(values ...interface{}) *Scope {
 	if len(values) > 0 {
 		scope.Search.Where(values[0], values[1:]...)
@@ -360,14 +395,23 @@ func (scope *Scope) updatedAttrsWithValues(values map[string]interface{}, ignore
 func (scope *Scope) row() *sql.Row {
 	defer scope.Trace(NowFunc())
 	scope.callCallbacks(scope.db.parent.callback.rowQueries)
-	scope.prepareQuerySql()
+	if len(scope.Search.calls) > 0 {
+		scope.prepareCallSql()
+	} else {
+		scope.prepareQuerySql()
+	}
 	return scope.SqlDB().QueryRow(scope.Sql, scope.SqlVars...)
 }
 
 func (scope *Scope) rows() (*sql.Rows, error) {
 	defer scope.Trace(NowFunc())
 	scope.callCallbacks(scope.db.parent.callback.rowQueries)
-	scope.prepareQuerySql()
+	if len(scope.Search.calls) > 0 {
+		//fmt.Printf("%#v", scope.Search.calls)
+		scope.prepareCallSql()
+	} else {
+		scope.prepareQuerySql()
+	}
 	return scope.SqlDB().Query(scope.Sql, scope.SqlVars...)
 }
 
