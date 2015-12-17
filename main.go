@@ -7,7 +7,9 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"github.com/arthurpro/gorm/sqlstruct"
+	"github.com/arthurpro/gosqlstruct"
+	"github.com/arthurpro/gostructs"
+	"github.com/arthurpro/gomapstructure"
 )
 
 // NowFunc returns current time, this function is exported in order to be able
@@ -223,7 +225,7 @@ func (s *DB) Scan(dest interface{}) *DB {
 	return s.clone().NewScope(s.Value).Set("gorm:query_destination", dest).callCallbacks(s.parent.callback.queries).db
 }
 
-func (s *DB) MustScan(dest interface{}, rows *sql.Rows) *DB {
+func (s *DB) ScanStruct(rows *sql.Rows, dest interface{}) *DB {
 	s.sqlstruct.MustScan(dest, rows)
 	return s.clone().NewScope(s.Value).db
 }
@@ -328,6 +330,87 @@ func (s *DB) Exec(sql string, values ...interface{}) *DB {
 
 func (s *DB) Call(sql string, values ...interface{}) *DB {
 	return s.clone().search.Raw(true).Call(sql, values...).db
+}
+
+type fMap struct {
+	name string
+	cond []string
+}
+
+func (s *DB) Pivot(rows *sql.Rows, src interface{}, dst interface{}, target interface{}) *DB {
+	dstStruct := structs.New(dst)
+	tag := strings.Split(dstStruct.Field("Id").Tag("pivot"), ":")
+	srcIdField := strings.Split(tag[0], "+")
+
+	var srcCondField, srcCondValue string
+	if len(tag) > 1 {
+		if cond := strings.Split(tag[1], "="); len(cond) == 2 {
+			srcCondField = cond[0]
+			srcCondValue = cond[1]
+		}
+	}
+	fieldMap := make(map[string]fMap)
+	for _, dstField := range dstStruct.Fields(){
+		if dstField.Name() == "Id" {
+			continue
+		} else {
+			tag := strings.Split(dstField.Tag("pivot"), ":")
+			name := tag[0]
+			var cond []string
+			if len(tag) > 1 {
+				cond = strings.Split(tag[1], "=")
+			}
+			fieldMap[dstField.Name()] = fMap{name, cond}
+		}
+	}
+//	fmt.Printf("%#v\n", fieldMap)
+
+	data := make(map[interface{}]interface{})
+
+	for rows.Next() {
+		s.ScanStruct(rows, src)
+		newSrcStruct := structs.New(src)
+		if srcCondField != "" && newSrcStruct.Field(srcCondField).Value().(string) != srcCondValue {
+			continue
+		}
+
+		id := (interface{})("")
+		for _, i := range srcIdField {
+			if f, ok := newSrcStruct.FieldOk(i); ok {
+				id = fmt.Sprintf("%v%v", id, f.Value().(interface{}))
+			} else {
+				id = fmt.Sprintf("%v%v", id, i)
+			}
+		}
+
+		//id := newSrcStruct.Field(srcIdField).Value().(int)
+		var d *structs.Struct
+		if data[id] == nil {
+			d = dstStruct
+			for _, x := range d.Fields() {
+				x.Zero()
+			}
+			d.Field("Id").Set(id)
+		} else {
+			mapstructure.Decode(data[id], dst)
+			d = structs.New(dst)
+		}
+
+		for field, fMap := range fieldMap {
+			if len(fMap.cond) < 2 || newSrcStruct.Field(fMap.cond[0]).Value().(string) == fMap.cond[1] {
+				var value interface{}
+				value = newSrcStruct.Field(fMap.name).Value()
+				d.Field(field).Set(value)
+			}
+		}
+
+		data[id] = d.Map()
+
+	}
+	mapstructure.Decode(data, target)
+//	fmt.Printf("\n%#v\n", target)
+
+	return s
 }
 
 func (s *DB) Model(value interface{}) *DB {

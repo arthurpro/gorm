@@ -6,6 +6,103 @@ The fantastic ORM library for Golang, aims to be developer friendly.
 
 [![wercker status](https://app.wercker.com/status/0cb7bb1039e21b74f8274941428e0921/s/master "wercker status")](https://app.wercker.com/project/bykey/0cb7bb1039e21b74f8274941428e0921)
 
+## Changes in this fork
+* Support for stored procedures with MySQL
+* Row scanning into structure
+* Dataset pivoting (experimental)
+
+### Support for stored procedures with MySQL
+1. Apply patch from `github.com/databasex/sql`
+```
+go get -u github.com/databasex/sql
+go get -u github.com/databasex/mysql
+cd $GOROOT/src/database/sql
+patch -N -p1 < $GOPATH/src/github.com/databasex/sql/database.patch
+rm -rf $GOROOT/pkg/*/database
+cd $dir
+go install -a database/sql
+```
+2. Replace `_ github.com/go-sql-driver/mysql` imports with `_ github.com/databasex/mysql`
+3. When calling `gorm.Open` or `sql.Open`, append `&clientMultiResults=true` to your DSN
+4. To enable return multi result sets with prepared statement, append `&clientPSMultiResults=true` to your DSN
+
+#### Calling stored procedures
+```
+db, err := gorm.Open("mysql", dsn)
+rows, _ := db.Call("some_procedure(?, ?)", "value1", "value2").Rows()
+// some_procedure() returns multiple result sets
+// processing first result set
+for rows.Next() {
+    struct1 := Struct1{}
+    db.ScanStruct(rows, &struct1)
+    ...
+}
+// going to the next result set
+if _, ok := rows.Sibling(); ok {
+    for rows.Next() {
+        struct2 := Struct2{}
+        db.ScanStruct(rows, &struct2)
+        ...
+    }
+}
+```
+
+### Pivoting
+Dataset transformation using Go structures
+```
++----+---------+---------------+--------+
+| id | item_id | property_name | value  |
++----+---------+---------------+--------+
+|  1 |       1 | color         | blue   |
+|  2 |       1 | size          | large  |
+|  3 |       1 | weight        | 65     |
+|  4 |       2 | color         | orange |
+|  5 |       2 | weight        | 57     |
+|  6 |       2 | size          | large  |
+|  7 |       3 | size          | small  |
+|  8 |       3 | color         | red    |
+|  9 |       3 | weight        | 12     |
+| 10 |       4 | color         | violet |
+| 11 |       4 | size          | medium |
+| 12 |       4 | weight        | 34     |
+| 13 |       5 | color         | green  |
+| 14 |       5 | weight        | 10     |
++----+---------+---------------+--------+
+
++---------+--------+--------+--------+
+| item_id | color  | size   | weight |
++---------+--------+--------+--------+
+|       1 | blue   | large  | 65     |
+|       2 | orange | large  | 57     |
+|       3 | red    | small  | 12     |
+|       4 | violet | medium | 34     |
+|       5 | green  | NULL   | 10     |
++---------+--------+--------+--------+
+```
+```
+type Source struct {
+    Id           int            `sql:"id"`
+    ItemId       int            `sql:"item_id"`
+    PropertyName string         `sql:"property_name"`
+    Value        sql.NullString `sql:"value"`
+}
+
+type Destination struct {
+    Id     string         `pivot:"id-+ItemId"` // Id is required
+    Color  sql.NullString `pivot:"Value:PropertyName=color"`
+    Size   sql.NullString `pivot:"Value:PropertyName=size"`
+    Weight sql.NullString `pivot:"Value:PropertyName=weight"`
+}
+
+src := Source{}
+dst := Destination{}
+target := []Destination{}
+
+db.Pivot(rows, &src, &dst, &target)
+```
+##### #end
+---
+
 ## Overview
 
 * Full-Featured ORM (almost)
