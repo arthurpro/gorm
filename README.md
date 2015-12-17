@@ -13,13 +13,12 @@ The fantastic ORM library for Golang, aims to be developer friendly.
 
 ### Support for stored procedures with MySQL
 1. Apply patch from `github.com/databasex/sql`
-```
+```bash
 go get -u github.com/databasex/sql
 go get -u github.com/databasex/mysql
 cd $GOROOT/src/database/sql
 patch -N -p1 < $GOPATH/src/github.com/databasex/sql/database.patch
 rm -rf $GOROOT/pkg/*/database
-cd $dir
 go install -a database/sql
 ```
 2. Replace `_ github.com/go-sql-driver/mysql` imports with `_ github.com/databasex/mysql`
@@ -27,7 +26,7 @@ go install -a database/sql
 4. To enable return multi result sets with prepared statement, append `&clientPSMultiResults=true` to your DSN
 
 #### Calling stored procedures
-```
+```go
 db, err := gorm.Open("mysql", dsn)
 rows, _ := db.Call("some_procedure(?, ?)", "value1", "value2").Rows()
 // some_procedure() returns multiple result sets
@@ -79,7 +78,7 @@ Dataset transformation using Go structures
 |       5 | green  | NULL   | 10     |
 +---------+--------+--------+--------+
 ```
-```
+```go
 type Source struct {
     Id           int            `sql:"id"`
     ItemId       int            `sql:"item_id"`
