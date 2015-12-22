@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"gitmount.org/go/sqlstruct"
 )
 
 func (scope *Scope) primaryCondition(value interface{}) string {
@@ -154,36 +156,6 @@ func (scope *Scope) buildSelectQuery(clause map[string]interface{}) (str string)
 	return
 }
 
-func (scope *Scope) buildCallQuery(clause map[string]interface{}) (str string) {
-	switch value := clause["query"].(type) {
-	case string:
-		str = value
-	case []string:
-		str = strings.Join(value, ", ")
-	}
-
-	str = fmt.Sprintf("CALL %s", str)
-
-	args := clause["args"].([]interface{})
-	for _, arg := range args {
-		switch reflect.ValueOf(arg).Kind() {
-		case reflect.Slice:
-			values := reflect.ValueOf(arg)
-			var tempMarks []string
-			for i := 0; i < values.Len(); i++ {
-				tempMarks = append(tempMarks, scope.AddToVars(values.Index(i).Interface()))
-			}
-			str = strings.Replace(str, "?", strings.Join(tempMarks, ","), 1)
-		default:
-			if valuer, ok := interface{}(arg).(driver.Valuer); ok {
-				arg, _ = valuer.Value()
-			}
-			str = strings.Replace(str, "?", scope.AddToVars(arg), 1)
-		}
-	}
-	return
-}
-
 func (scope *Scope) whereSql() (sql string) {
 	var primaryConditions, andConditions, orConditions []string
 
@@ -249,6 +221,11 @@ func (scope *Scope) selectSql() string {
 	}
 	sql := scope.buildSelectQuery(scope.Search.selects)
 	scope.Search.countingQuery = (len(scope.Search.group) == 0) && hasCountRegexp.MatchString(sql)
+	return sql
+}
+
+func (scope *Scope) callSql() string {
+	sql := scope.buildSelectQuery(scope.Search.calls)
 	return sql
 }
 
@@ -338,7 +315,7 @@ func (scope *Scope) prepareQuerySql() {
 }
 
 func (scope *Scope) prepareCallSql() {
-	scope.Raw(scope.buildCallQuery(scope.Search.calls))
+	scope.Raw(fmt.Sprintf("CALL %v", scope.callSql()))
 	return
 }
 
@@ -407,7 +384,6 @@ func (scope *Scope) rows() (*sql.Rows, error) {
 	defer scope.Trace(NowFunc())
 	scope.callCallbacks(scope.db.parent.callback.rowQueries)
 	if len(scope.Search.calls) > 0 {
-		//fmt.Printf("%#v", scope.Search.calls)
 		scope.prepareCallSql()
 	} else {
 		scope.prepareQuerySql()
@@ -439,6 +415,79 @@ func (scope *Scope) pluck(column string, value interface{}) *Scope {
 			elem := reflect.New(dest.Type().Elem()).Interface()
 			scope.Err(rows.Scan(elem))
 			dest.Set(reflect.Append(dest, reflect.ValueOf(elem).Elem()))
+		}
+	}
+	return scope
+}
+
+func (scope *Scope) call(sql string, values ...interface{}) *Scope {
+	scope.Search.calls = map[string]interface{}{"query": sql, "args": values}
+	dest := reflect.Indirect(reflect.ValueOf(scope.Value))
+	ss := sqlstruct.NewSession()
+	if dest.Kind() != reflect.Slice {
+		rows, err := scope.rows()
+		if scope.Err(err) == nil {
+			defer rows.Close()
+			if rows.Next() {
+				ss.MustScan(scope.Value, rows)
+			}
+		}
+	} else {
+		rows, err := scope.rows()
+		if scope.Err(err) == nil {
+			defer rows.Close()
+			for rows.Next() {
+				elem := reflect.New(dest.Type().Elem()).Interface()
+				//scope.Log(fmt.Printf("%T",elem))
+				ss.MustScan(elem, rows)
+				//scope.Log(elem)
+				dest.Set(reflect.Append(dest, reflect.ValueOf(elem).Elem()))
+			}
+		}
+	}
+	return scope
+}
+
+func (scope *Scope) callmulti(sql string, values ...interface{}) *Scope {
+	scope.Search.calls = map[string]interface{}{"query": sql, "args": values}
+	rows, err := scope.rows()
+	if scope.Err(err) == nil {
+		defer rows.Close()
+		for _, v := range scope.Value.([]interface{}) {
+			dest := reflect.Indirect(reflect.ValueOf(v))
+			ss := sqlstruct.NewSession()
+			if dest.Kind() != reflect.Slice && dest.Kind() != reflect.Array{
+				if rows.Next() {
+					ss.MustScan(v, rows)
+				}
+				for rows.Next(){}
+			} else {
+					scope.Log(dest.Len())
+					len := dest.Len();
+					i := 0
+
+				for rows.Next() {
+					elem := reflect.New(dest.Type().Elem()).Interface()
+					//scope.Log(fmt.Printf("%T",elem))
+					ss.MustScan(elem, rows)
+					//scope.Log(elem)
+					if len > 0 {
+						dest.Index(i).Set(reflect.ValueOf(elem).Elem())
+					} else {
+						dest.Set(reflect.Append(dest, reflect.ValueOf(elem).Elem()))
+					}
+					i++
+					if i == len { for rows.Next(){}; break }
+				}
+
+				if i < len {
+					dest.Set(dest.Slice(0, i))
+				}
+			}
+			if _, ok := rows.Sibling(); !ok {
+				//scope.Log(fmt.Sprintf("%#v\n%#v", res, ok))
+				break
+			}
 		}
 	}
 	return scope

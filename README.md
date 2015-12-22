@@ -13,7 +13,7 @@ The fantastic ORM library for Golang, aims to be developer friendly.
 
 ### Support for stored procedures with MySQL
 1. Apply patch from `github.com/databasex/sql`
-```bash
+```
 go get -u github.com/databasex/sql
 go get -u github.com/databasex/mysql
 cd $GOROOT/src/database/sql
@@ -28,8 +28,24 @@ go install -a database/sql
 #### Calling stored procedures
 ```go
 db, err := gorm.Open("mysql", dsn)
-rows, _ := db.Call("some_procedure(?, ?)", "value1", "value2").Rows()
+
+// Can populate struct, slice, array
+model := make([]Model, 20)
+model := [10]Model{}
+model := []Model{}
+model := Model{}
+
+db.Model(&model).Call("some_procedure(?, ?)", "value1", "value2")
+
+// Multiple result sets into structs
+model1 := []Model1{}
+model2 := Model2{}
 // some_procedure() returns multiple result sets
+db.Models(&model1, &model2).Call("some_procedure(?, ?)", "value1", "value2")
+
+// Working with Rows
+// some_procedure() returns multiple result sets
+rows, _ := db.Call("some_procedure(?, ?)", "value1", "value2").Rows()
 // processing first result set
 for rows.Next() {
     struct1 := Struct1{}
@@ -87,17 +103,17 @@ type Source struct {
 }
 
 type Destination struct {
-    Id     string         `pivot:"id-+ItemId"` // Id is required
-    Color  sql.NullString `pivot:"Value:PropertyName=color"`
-    Size   sql.NullString `pivot:"Value:PropertyName=size"`
-    Weight sql.NullString `pivot:"Value:PropertyName=weight"`
+    Id     int         `pivot:"ItemId"` // Id is required
+    Color  string      `pivot:"Value:PropertyName=color"`
+    Size   int         `pivot:"Value:PropertyName=size"`
+    Weight int         `pivot:"Value:PropertyName=weight"`
 }
 
 src := Source{}
-dst := Destination{}
 target := []Destination{}
 
-db.Pivot(rows, &src, &dst, &target)
+// Pivot src into target
+db.Model(&target).Pivot(&src)
 ```
 ##### #end
 ---

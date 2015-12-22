@@ -10,7 +10,6 @@ type search struct {
 	havingConditions []map[string]interface{}
 	initAttrs        []interface{}
 	assignAttrs      []interface{}
-	calls			 map[string]interface{}
 	selects          map[string]interface{}
 	omits            []string
 	orders           []string
@@ -23,6 +22,9 @@ type search struct {
 	raw              bool
 	Unscoped         bool
 	countingQuery    bool
+
+	calls			 map[string]interface{}
+	multiResults     bool
 }
 
 type searchPreload struct {
@@ -75,11 +77,6 @@ func (s *search) Order(value string, reorder ...bool) *search {
 
 func (s *search) Select(query interface{}, args ...interface{}) *search {
 	s.selects = map[string]interface{}{"query": query, "args": args}
-	return s
-}
-
-func (s *search) Call(query interface{}, args ...interface{}) *search {
-	s.calls = map[string]interface{}{"query": query, "args": args}
 	return s
 }
 
