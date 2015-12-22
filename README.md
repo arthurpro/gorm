@@ -12,7 +12,7 @@ The fantastic ORM library for Golang, aims to be developer friendly.
 * Dataset pivoting (experimental)
 
 ### Support for stored procedures with MySQL
-1. Apply patch from `github.com/databasex/sql`
+1. Apply patch from `github.com/databasex/sql` 
 ```
 go get -u github.com/databasex/sql
 go get -u github.com/databasex/mysql
